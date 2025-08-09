@@ -4,68 +4,48 @@ using UnityEngine.UI;
 
 public class Dice : MonoBehaviour
 {
-    [Header("Dice Visuals")]
-    public Sprite[] diceSides;       // Dice face sprites (0 = 1, 5 = 6)
-    public Image diceImage;          // UI image to display dice
+    public Sprite[] diceSides;
+    public Image diceImage;
     public Button rollButton;
 
-    [Header("Player Info")]
-    public PlayerType owner;         // Assign in Inspector (Player1 or Player2)
+    public PlayerType owner;
 
-    private int turnsWithoutSix = 0;
-    private bool firstTimeBoostUsed = false;
-
-    private System.Random random = new System.Random();
+    private bool rolling = false;
 
     public void Roll()
     {
-        if (rollButton != null)
-            rollButton.interactable = false;
+        if (rolling || rollButton == null || !rollButton.interactable) return;
 
+        rollButton.interactable = false;
+        rolling = true;
         StartCoroutine(RollAnimation());
     }
 
+    public void SetDiceFace(int faceValue)
+    {
+        // faceValue is 1-6, so index = faceValue - 1
+        if (diceSides != null && diceSides.Length >= faceValue && diceImage != null)
+        {
+            diceImage.sprite = diceSides[faceValue - 1];
+        }
+    }
+
+
     private IEnumerator RollAnimation()
     {
-        int resultIndex = 0;
+        int rollResult = 0;
 
         for (int i = 0; i < 15; i++)
         {
-            resultIndex = Random.Range(0, 6);
-            diceImage.sprite = diceSides[resultIndex];
+            rollResult = Random.Range(1, 7);
+            diceImage.sprite = diceSides[rollResult - 1];
             yield return new WaitForSeconds(0.05f);
         }
 
-        int finalRoll = RollWithBoostLogic();
-        diceImage.sprite = diceSides[finalRoll - 1];
+        // Inform GameManager of the roll result, which will handle boosted chance if needed
+        GameManager.Instance.OnDiceRolled(rollResult);
 
-        GameManager.Instance.OnDiceRolled(finalRoll);
-    }
-
-    private int RollWithBoostLogic()
-    {
-        if (firstTimeBoostUsed)
-            return random.Next(1, 7);
-
-        int roll = random.Next(1, 7);
-
-        if (roll == 6)
-        {
-            turnsWithoutSix = 0;
-            firstTimeBoostUsed = true;
-            return roll;
-        }
-
-        turnsWithoutSix++;
-
-        if (turnsWithoutSix >= 5)
-        {
-            firstTimeBoostUsed = true;
-            int[] weightedNumbers = { 1, 2, 3, 4, 5, 6, 6, 6 };
-            roll = weightedNumbers[random.Next(weightedNumbers.Length)];
-        }
-
-        return roll;
+        rolling = false;
     }
 
     public void SetInteractable(bool interactable)

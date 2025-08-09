@@ -3,40 +3,43 @@ using System.Collections;
 
 public class Token : MonoBehaviour
 {
-    public Transform[] pathPoints;   // Full movement path including base and final home
-    public int currentPosition = -1; // -1 means token is in base
+    [Header("Movement & Positions")]
+    public Transform[] pathPoints;          // The path points for this token
+    public Transform basePosition;          // The token's base position in the scene
+
+    [Header("Ownership")]
     public PlayerType owner;
-    private bool isInHome = false;   // True when token reaches final home
 
-    [Header("Highlight Settings")]
-    public GameObject highlightObject; // Optional highlight visual
+    [Header("Highlight")]
+    public GameObject highlightObject;      // Optional highlight object
+
+    public int currentPosition = -1;        // -1 means in base
+    private bool isInHome = false;
+
     private bool isHighlighted = false;
-
-    private System.Action onClickCallback;
     private bool isSelectable = false;
 
-    // Base position transform (should be assigned in inspector or dynamically set)
-    public Transform basePosition;
+    private System.Action onMoveComplete;
 
     public bool CanMove(int steps)
     {
         if (isInHome) return false;
 
-        // Can only move out of base on a roll of 6
         if (currentPosition == -1 && steps == 6) return true;
 
-        // Normal move if already on path and within bounds
         if (currentPosition != -1 && currentPosition + steps < pathPoints.Length) return true;
 
-        // Exact move to final home position allowed
         if (currentPosition + steps == pathPoints.Length - 1) return true;
 
         return false;
     }
 
-    public void Move(int steps)
+    public void Move(int steps, System.Action moveCompleteCallback)
     {
-        SetHighlight(false);  // Remove highlight once move starts
+        SetHighlight(false);
+        SetSelectable(false);
+
+        onMoveComplete = moveCompleteCallback;
 
         if (!gameObject.activeInHierarchy)
             gameObject.SetActive(true);
@@ -45,13 +48,13 @@ public class Token : MonoBehaviour
         {
             if (steps == 6)
             {
-                currentPosition = 0; // Move token out of base to starting path point
+                currentPosition = 0;
                 StartCoroutine(MoveToStartAndContinue());
             }
             else
             {
-                Debug.LogWarning($"Token owned by {owner} cannot move out of base on roll {steps}");
-                GameManager.Instance.EndTurn();
+                Debug.LogWarning($"Token cannot move out of base on roll {steps}");
+                onMoveComplete?.Invoke();
             }
         }
         else
@@ -63,7 +66,7 @@ public class Token : MonoBehaviour
     private IEnumerator MoveToStartAndContinue()
     {
         yield return StartCoroutine(MoveTo(pathPoints[currentPosition]));
-        GameManager.Instance.CheckWinCondition();
+        onMoveComplete?.Invoke();
     }
 
     private IEnumerator MoveSteps(int steps)
@@ -81,15 +84,44 @@ public class Token : MonoBehaviour
         }
         else
         {
-            CheckCapture();
+            yield return StartCoroutine(CheckCaptureCoroutine());
         }
 
-        GameManager.Instance.CheckWinCondition();
+        onMoveComplete?.Invoke();
     }
+
+    private IEnumerator CheckCaptureCoroutine()
+    {
+        Token[] allTokens = FindObjectsOfType<Token>();
+        float captureDistanceThreshold = 0.5f; // adjust based on your scale, smaller than token size
+
+        foreach (Token t in allTokens)
+        {
+            if (t == this) continue;                  // skip self
+            if (t.owner == this.owner) continue;      // skip same player tokens
+            if (t.isInHome) continue;                  // skip tokens already home
+
+            // Only consider tokens currently on the board (not in base)
+            if (t.currentPosition == -1 || this.currentPosition == -1) continue;
+
+            // Check actual world distance instead of index
+            float dist = Vector3.Distance(t.transform.position, this.transform.position);
+
+            if (dist <= captureDistanceThreshold)
+            {
+                // Capture happens: send other token to base
+                t.SendToBase();
+
+                // Optional: small delay to show the capture visually
+                yield return new WaitForSeconds(0.3f);
+            }
+        }
+    }
+
 
     private IEnumerator MoveTo(Transform target)
     {
-        float elapsed = 0;
+        float elapsed = 0f;
         Vector3 start = transform.position;
         Vector3 end = target.position;
 
@@ -99,35 +131,15 @@ public class Token : MonoBehaviour
             elapsed += Time.deltaTime;
             yield return null;
         }
+
         transform.position = end;
-    }
-
-    private void CheckCapture()
-    {
-        Token[] allTokens = FindObjectsOfType<Token>();
-        foreach (Token t in allTokens)
-        {
-            if (t == this) continue;
-            if (t.owner == this.owner) continue;
-            if (t.isInHome) continue;
-
-            // Skip tokens in base to prevent false capture
-            if (t.currentPosition == -1 || this.currentPosition == -1) continue;
-
-            if (t.currentPosition == this.currentPosition)
-            {
-                t.SendToBase();
-            }
-        }
     }
 
     private void OnMouseDown()
     {
-        if (isSelectable && onClickCallback != null)
+        if (isSelectable)
         {
-            onClickCallback.Invoke();
-            SetSelectable(false, null);
-            SetHighlight(false);
+            GameManager.Instance.OnTokenClicked(this);
         }
     }
 
@@ -135,42 +147,29 @@ public class Token : MonoBehaviour
     {
         isInHome = false;
         currentPosition = -1;
+        transform.position = basePosition != null ? basePosition.position : (pathPoints.Length > 0 ? pathPoints[0].position : transform.position);
 
-        // Move token visually back to base position (use basePosition if assigned)
-        if (basePosition != null)
-        {
-            transform.position = basePosition.position;
-        }
-        else if (pathPoints.Length > 0)
-        {
-            // Fallback: If no basePosition set, use the first pathPoint (ensure this is correct)
-            transform.position = pathPoints[0].position;
-        }
-        else
-        {
-            Debug.LogWarning("No basePosition or pathPoints assigned for token!");
-        }
+        // Optionally disable selection/highlight when sent to base
+        SetSelectable(false);
+        SetHighlight(false);
     }
 
     public void SetHighlight(bool active)
     {
         isHighlighted = active;
-
         if (highlightObject != null)
-        {
             highlightObject.SetActive(active);
-        }
         else
         {
-            SpriteRenderer sr = GetComponent<SpriteRenderer>();
+            var sr = GetComponent<SpriteRenderer>();
             if (sr != null)
                 sr.color = active ? Color.yellow : Color.white;
         }
     }
 
-    public void SetSelectable(bool selectable, System.Action onClick)
+    public void SetSelectable(bool selectable)
     {
         isSelectable = selectable;
-        onClickCallback = onClick;
+        SetHighlight(selectable);
     }
 }
