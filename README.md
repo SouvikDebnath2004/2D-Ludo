@@ -1,2 +1,2 @@
 # 2D-Ludo
-
+In the game each player has their own dice they roll the dice until its 6 token cant be taken out of base when its 6 player can manually choose which token to move if there is no move for the player its automatically makes player 2 turn limations can be the visual appeal and some minor bugs may appear with more time bugs can be fixed and the game logic could be reinforced like like if player captures opponent token then they get another chance to roll and i could add sone nice SFX and more better UI for the Game 
